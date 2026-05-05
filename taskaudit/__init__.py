@@ -7,6 +7,7 @@ from .scanner import scan_files
 from .prompt import build_prompt
 from .providers import LLMProvider, get_provider
 from .coverage import run_coverage
+from .stack import Stack, VALID_STACKS, detect_stack
 
 __all__ = [
     "AuditResult",
@@ -22,4 +23,7 @@ __all__ = [
     "LLMProvider",
     "get_provider",
     "run_coverage",
+    "Stack",
+    "VALID_STACKS",
+    "detect_stack",
 ]

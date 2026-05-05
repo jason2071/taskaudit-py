@@ -27,6 +27,7 @@ from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS, LOCAL_PRO
 from .coverage import run_coverage
 from .providers import get_provider
 from .scanner import scan_files
+from .stack import VALID_STACKS, detect_stack
 
 # ─────────────────────────────────────────────────────────
 # FastAPI app
@@ -52,6 +53,7 @@ class AuditRequest(BaseModel):
     coverage: bool = False
     coverage_threshold: float = 80.0
     coverage_timeout: int = 300
+    stack: str = "auto"  # "auto", "ent", "plain"
 
 
 # ─────────────────────────────────────────────────────────
@@ -89,14 +91,30 @@ def get_defaults():
         "default_include_paths": ",".join(DEFAULT_INCLUDE_DIRS),
         "api_key_env": API_KEY_ENV,
         "local_providers": list(LOCAL_PROVIDERS),
+        "stacks": list(VALID_STACKS),
     }
+
+
+@app.get("/api/detect-stack")
+def detect_stack_endpoint(path: str):
+    """Auto-detect stack จาก project_dir — เรียกเมื่อ user เลือก directory"""
+    target = Path(path).expanduser().resolve()
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Directory not found: {path}")
+    return {"stack": detect_stack(str(target))}
 
 
 @app.get("/api/template/{name}")
 def get_template(name: str):
     """Download template file"""
     templates_dir = Path(__file__).resolve().parent.parent / "templates"
-    allowed = {"checklist.txt", "requirement.md", "MANUAL_TEST.md"}
+    allowed = {
+        "checklist.txt",
+        "checklist-ent-atlas.txt",
+        "checklist-plain.txt",
+        "requirement.md",
+        "MANUAL_TEST.md",
+    }
     if name not in allowed:
         raise HTTPException(status_code=404, detail=f"Template not found: {name}")
     filepath = templates_dir / name
@@ -254,8 +272,13 @@ def run_audit(req: AuditRequest):
             provider = get_provider(req.provider)
             model = req.model or DEFAULT_MODELS[req.provider]
 
+            # Resolve stack (auto-detect if needed)
+            stack = detect_stack(str(project_dir)) if req.stack == "auto" else req.stack
+            if stack not in VALID_STACKS:
+                stack = "plain"
+
             # Load checklist
-            checklist = load_checklist(req.checklist_path)
+            checklist = load_checklist(req.checklist_path, stack)
 
             # Scan files
             include_paths = [p.strip() for p in req.include_paths.split(",") if p.strip()]
@@ -350,6 +373,7 @@ def run_audit(req: AuditRequest):
                 "missing_items": result.missing_items,
                 "summary": result.summary,
                 "coverage": coverage_resp,
+                "stack": stack,
             }
 
         except HTTPException:
@@ -697,9 +721,19 @@ WEB_HTML = """<!DOCTYPE html>
     <div class="form-group">
       <label>Project Directory *</label>
       <div class="dir-input-wrap">
-        <input type="text" id="projectDir" placeholder="/path/to/go/project">
+        <input type="text" id="projectDir" placeholder="/path/to/go/project" onchange="autoDetectStack()">
         <button class="btn-browse" onclick="openBrowser()">Browse</button>
       </div>
+    </div>
+
+    <div class="form-group">
+      <label>Stack</label>
+      <select id="stack">
+        <option value="auto">Auto-detect</option>
+        <option value="ent">ent + atlas</option>
+        <option value="plain">plain (database/sql)</option>
+      </select>
+      <div class="hint" id="stackHint">Auto-detect: ent/schema/ หรือ atlas.hcl → ent, ไม่งั้น plain</div>
     </div>
 
     <div class="form-group">
@@ -791,9 +825,15 @@ WEB_HTML = """<!DOCTYPE html>
         <div class="dir-input-wrap">
           <input type="text" id="checklistPath" placeholder="(optional) path to checklist.txt">
           <button class="btn-browse" onclick="openFileBrowser('checklistPath')">Browse</button>
-          <button class="btn-browse" onclick="downloadTemplate('checklist.txt')" title="Download template">&#x2913;</button>
+          <button class="btn-browse" onclick="downloadTemplate('checklist.txt')" title="Download generic template">&#x2913;</button>
         </div>
-        <div class="hint">Format: "category: title" per line. Leave empty for built-in checklist.</div>
+        <div class="hint">
+          Format: "category: title" per line. Leave empty for built-in (per stack).
+          <br>Download by stack:
+          <a href="#" onclick="downloadTemplate('checklist-ent-atlas.txt'); return false;">ent+atlas</a>
+          &middot;
+          <a href="#" onclick="downloadTemplate('checklist-plain.txt'); return false;">plain</a>
+        </div>
       </div>
 
       <div class="form-group">
@@ -882,6 +922,9 @@ async function init() {
   const lastCoverageTh = localStorage.getItem('ta_coverageThreshold');
   if (lastCoverageTh) document.getElementById('coverageThreshold').value = lastCoverageTh;
   toggleCoverageOpts();
+  const lastStack = localStorage.getItem('ta_stack');
+  if (lastStack) document.getElementById('stack').value = lastStack;
+  if (lastDir) autoDetectStack();
   const lastChecklist = sessionStorage.getItem('ta_checklistPath');
   if (lastChecklist) document.getElementById('checklistPath').value = lastChecklist;
   const lastContext = sessionStorage.getItem('ta_contextPath');
@@ -1033,6 +1076,29 @@ function selectDir() {
   document.getElementById('projectDir').value = browserCurrentPath;
   localStorage.setItem('ta_dir', browserCurrentPath);
   closeBrowser();
+  autoDetectStack();
+}
+
+async function autoDetectStack() {
+  const dir = document.getElementById('projectDir').value.trim();
+  const hint = document.getElementById('stackHint');
+  if (!dir) return;
+  try {
+    const resp = await fetch('/api/detect-stack?path=' + encodeURIComponent(dir));
+    if (!resp.ok) {
+      hint.textContent = 'Auto-detect failed (manual select)';
+      return;
+    }
+    const data = await resp.json();
+    hint.textContent = 'Detected: ' + data.stack + ' (override ด้วย dropdown ได้)';
+    // Only auto-set if user has dropdown on "auto" — don't override manual choice
+    const select = document.getElementById('stack');
+    if (select.value === 'auto') {
+      hint.textContent = 'Detected: ' + data.stack;
+    }
+  } catch (e) {
+    hint.textContent = 'Auto-detect error: ' + e.message;
+  }
 }
 
 async function loadDirectory(path) {
@@ -1213,6 +1279,7 @@ async function runAudit() {
   const noTests = document.getElementById('noTests').checked;
   const coverage = document.getElementById('coverage').checked;
   const coverageThreshold = parseFloat(document.getElementById('coverageThreshold').value) || 80;
+  const stack = document.getElementById('stack').value;
   const checklistPath = document.getElementById('checklistPath').value.trim();
   const contextPath = document.getElementById('contextPath').value.trim();
   const manualTestPath = document.getElementById('manualTestPath').value.trim();
@@ -1229,6 +1296,7 @@ async function runAudit() {
   localStorage.setItem('ta_include', includePaths);
   localStorage.setItem('ta_coverage', coverage ? '1' : '0');
   localStorage.setItem('ta_coverageThreshold', String(coverageThreshold));
+  localStorage.setItem('ta_stack', stack);
 
   // UI: show loading
   document.getElementById('welcome').style.display = 'none';
@@ -1249,6 +1317,7 @@ async function runAudit() {
         manual_test_path: manualTestPath || null,
         coverage: coverage,
         coverage_threshold: coverageThreshold,
+        stack: stack,
       }),
     });
 
@@ -1282,9 +1351,10 @@ function renderResults(data) {
   html += '  <div class="result-badge">CODE AUDIT REPORT</div>';
   html += '  <h1>' + escapeHtml(data.task) + '</h1>';
   if (data.desc) html += '  <div class="result-desc">' + escapeHtml(data.desc) + '</div>';
+  const stackTag = data.stack ? ' &bull; stack: ' + escapeHtml(data.stack) : '';
   html += '  <div class="result-meta">' + data.provider + '/' + escapeHtml(data.model) +
     ' &bull; ' + data.files_scanned + ' files scanned &bull; ' +
-    data.total_steps + ' steps &bull; ' + data.done_pct + '% complete</div>';
+    data.total_steps + ' steps &bull; ' + data.done_pct + '% complete' + stackTag + '</div>';
   html += '  <div class="progress-bar"><div class="progress-fill" style="width:' + data.done_pct + '%"></div></div>';
   html += '</div>';
 

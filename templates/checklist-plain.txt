@@ -1,0 +1,35 @@
+# Checklist สำหรับ Go + database/sql / sqlx (plain)
+# Format: category: title (one per line)
+# Categories: analysis, code, test, docs, review
+
+# === ANALYSIS ===
+analysis: เข้าใจ requirement + ระบุ scope ที่กระทบ
+analysis: identify edge cases และ error scenarios
+
+# === DATABASE (plain) ===
+code: model + DTO แยกจากกัน, struct tags ครบ
+code: migration up + down (golang-migrate/sql-migrate, rollback ได้จริง)
+code: constraints + index ใน migration ตามที่ query ใช้
+code: repository ใช้ context.Context + prepared statement
+code: rows.Close() + check rows.Err() เสมอ
+code: SQL ไม่ concat string (SQL injection guard — ใช้ placeholder $1, ?)
+code: transaction ใช้ `db.BeginTx(ctx, ...)` + defer rollback
+
+# === COMMON CODE ===
+code: business logic อยู่ที่ service ไม่รั่วไป handler/repo
+code: validation (validator + i18n)
+code: error wrapping + map เป็น HTTP status ที่ถูก
+code: register route ใน main.go / router
+code: no secret hardcoded — ใช้ env config
+
+# === TEST ===
+test: unit test service (table-driven, happy + error)
+test: repository test ใช้ sqlmock หรือ testcontainer
+test: manual test ทุก endpoint (Postman/curl)
+
+# === DOCS ===
+docs: API Spec + DB Diagram อัปเดต
+
+# === REVIEW ===
+review: self review + lint/gofmt pass
+review: cleanup debug print, commented code

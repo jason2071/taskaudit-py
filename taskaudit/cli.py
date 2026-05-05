@@ -39,6 +39,7 @@ from .reporters.html import export_html
 from .reporters.markdown import export_markdown
 from .reporters.terminal import print_report
 from .scanner import scan_files
+from .stack import VALID_STACKS, detect_stack
 
 
 def main() -> None:
@@ -63,6 +64,12 @@ def main() -> None:
         help=f"AI provider (default: {DEFAULT_PROVIDER})",
     )
     parser.add_argument("--model", default=None, help="Model name (default: per provider)")
+    parser.add_argument(
+        "--stack",
+        default="auto",
+        choices=["auto", *VALID_STACKS],
+        help="Tech stack: auto-detect (default), ent (ent+atlas), หรือ plain (database/sql)",
+    )
     parser.add_argument(
         "--include",
         default=",".join(DEFAULT_INCLUDE_DIRS),
@@ -89,8 +96,16 @@ def main() -> None:
     provider = get_provider(args.provider)
     model = args.model or DEFAULT_MODELS[args.provider]
 
+    # 0. Resolve stack (auto-detect or explicit)
+    stack = detect_stack(args.dir) if args.stack == "auto" else args.stack
+    if args.verbose:
+        if args.stack == "auto":
+            console.print(f"🔎 Detected stack: [bold]{stack}[/]")
+        else:
+            console.print(f"🔧 Stack: [bold]{stack}[/] (explicit)")
+
     # 1. Load checklist
-    checklist = load_checklist(args.checklist)
+    checklist = load_checklist(args.checklist, stack)
     if args.verbose:
         console.print(f"📋 Loaded {len(checklist)} checklist items")
 
