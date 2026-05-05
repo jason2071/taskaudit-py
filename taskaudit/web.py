@@ -47,6 +47,7 @@ class AuditRequest(BaseModel):
     no_tests: bool = False
     checklist_path: str | None = None
     context_path: str | None = None
+    manual_test_path: str | None = None
 
 
 # ─────────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ def get_defaults():
 def get_template(name: str):
     """Download template file"""
     templates_dir = Path(__file__).resolve().parent.parent / "templates"
-    allowed = {"checklist.txt", "requirement.md"}
+    allowed = {"checklist.txt", "requirement.md", "MANUAL_TEST.md"}
     if name not in allowed:
         raise HTTPException(status_code=404, detail=f"Template not found: {name}")
     filepath = templates_dir / name
@@ -249,6 +250,14 @@ def run_audit(req: AuditRequest):
                 ctx_file = Path(req.context_path).expanduser().resolve()
                 if ctx_file.exists() and ctx_file.is_file():
                     context_text = ctx_file.read_text(encoding="utf-8")
+
+            # Append manual test results ถ้ามี
+            if req.manual_test_path:
+                mt_file = Path(req.manual_test_path).expanduser().resolve()
+                if mt_file.exists() and mt_file.is_file():
+                    mt_text = mt_file.read_text(encoding="utf-8")
+                    sep = "\n\n--- Manual Test Results ---\n"
+                    context_text = (context_text + sep + mt_text) if context_text else mt_text
 
             # Run audit
             result = audit_code(req.task, req.desc, checklist, files, provider, model, context_text)
@@ -607,21 +616,11 @@ WEB_HTML = """<!DOCTYPE html>
     </div>
 
     <div class="form-group">
-      <label>Checklist File</label>
-      <div class="dir-input-wrap">
-        <input type="text" id="checklistPath" placeholder="(optional) path to checklist.txt">
-        <button class="btn-browse" onclick="openFileBrowser('checklistPath')">Browse</button>
-      </div>
-      <div class="hint">Format: "category: title" per line. Leave empty for built-in checklist.</div>
-    </div>
-
-    <div class="form-group">
-      <label>Context / Requirement File</label>
-      <div class="dir-input-wrap">
-        <input type="text" id="contextPath" placeholder="(optional) path to requirement.md">
-        <button class="btn-browse" onclick="openFileBrowser('contextPath')">Browse</button>
-      </div>
-      <div class="hint">Requirement/spec doc ที่ AI จะใช้ประเมิน scope</div>
+      <label>Optional Files & Templates</label>
+      <button class="btn btn-secondary" id="optionalBtn" onclick="openOptionalModal()" style="width:100%; text-align:left; padding:10px 12px;">
+        <span id="optionalSummary">Configure (0 files set)</span>
+      </button>
+      <div class="hint">Checklist, Context, Manual Test files + template downloads</div>
     </div>
 
     <div class="form-group">
@@ -643,12 +642,6 @@ WEB_HTML = """<!DOCTYPE html>
     <button class="btn btn-secondary" id="exportBtn" onclick="exportMd()" style="display:none; width:100%; margin-top:8px;">
       Export Markdown
     </button>
-
-    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
-    <div style="display:flex; gap:6px;">
-      <button class="btn btn-secondary" style="flex:1; font-size:11px; padding:7px 10px;" onclick="downloadTemplate('checklist.txt')">Template: Checklist</button>
-      <button class="btn btn-secondary" style="flex:1; font-size:11px; padding:7px 10px;" onclick="downloadTemplate('requirement.md')">Template: Requirement</button>
-    </div>
   </div>
 
   <!-- ── Main: Results ── -->
@@ -680,6 +673,51 @@ WEB_HTML = """<!DOCTYPE html>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeBrowser()">Cancel</button>
       <button class="btn btn-select" onclick="selectDir()">Select This Directory</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Optional Files & Templates Modal ── -->
+<div class="modal-overlay" id="optionalModal">
+  <div class="modal" style="width: 640px;">
+    <div class="modal-header">
+      <h3>Optional Files & Templates</h3>
+      <button class="modal-close" onclick="closeOptionalModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding: 20px;">
+      <div class="form-group">
+        <label>Checklist File</label>
+        <div class="dir-input-wrap">
+          <input type="text" id="checklistPath" placeholder="(optional) path to checklist.txt">
+          <button class="btn-browse" onclick="openFileBrowser('checklistPath')">Browse</button>
+          <button class="btn-browse" onclick="downloadTemplate('checklist.txt')" title="Download template">&#x2913;</button>
+        </div>
+        <div class="hint">Format: "category: title" per line. Leave empty for built-in checklist.</div>
+      </div>
+
+      <div class="form-group">
+        <label>Context / Requirement File</label>
+        <div class="dir-input-wrap">
+          <input type="text" id="contextPath" placeholder="(optional) path to requirement.md">
+          <button class="btn-browse" onclick="openFileBrowser('contextPath')">Browse</button>
+          <button class="btn-browse" onclick="downloadTemplate('requirement.md')" title="Download template">&#x2913;</button>
+        </div>
+        <div class="hint">Requirement/spec doc ที่ AI จะใช้ประเมิน scope</div>
+      </div>
+
+      <div class="form-group">
+        <label>Manual Test File</label>
+        <div class="dir-input-wrap">
+          <input type="text" id="manualTestPath" placeholder="(optional) path to MANUAL_TEST.md">
+          <button class="btn-browse" onclick="openFileBrowser('manualTestPath')">Browse</button>
+          <button class="btn-browse" onclick="downloadTemplate('MANUAL_TEST.md')" title="Download template">&#x2913;</button>
+        </div>
+        <div class="hint">Manual test results doc — appended to context for audit</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="clearOptionalFiles()">Clear All</button>
+      <button class="btn btn-select" onclick="closeOptionalModal()">Done</button>
     </div>
   </div>
 </div>
@@ -741,6 +779,9 @@ async function init() {
   if (lastChecklist) document.getElementById('checklistPath').value = lastChecklist;
   const lastContext = sessionStorage.getItem('ta_contextPath');
   if (lastContext) document.getElementById('contextPath').value = lastContext;
+  const lastManualTest = sessionStorage.getItem('ta_manualTestPath');
+  if (lastManualTest) document.getElementById('manualTestPath').value = lastManualTest;
+  updateOptionalSummary();
   const lastProvider = localStorage.getItem('ta_provider');
   if (lastProvider) {
     document.getElementById('provider').value = lastProvider;
@@ -937,6 +978,43 @@ function selectFile(filePath) {
   document.getElementById(fileBrowserTargetId).value = filePath;
   sessionStorage.setItem('ta_' + fileBrowserTargetId, filePath);
   closeFileBrowser();
+  updateOptionalSummary();
+}
+
+// ─────────────────────────────────────────────────────────
+// Optional Files & Templates Modal
+// ─────────────────────────────────────────────────────────
+function openOptionalModal() {
+  document.getElementById('optionalModal').classList.add('active');
+}
+
+function closeOptionalModal() {
+  document.getElementById('optionalModal').classList.remove('active');
+  updateOptionalSummary();
+}
+
+function clearOptionalFiles() {
+  ['checklistPath', 'contextPath', 'manualTestPath'].forEach(function(id) {
+    document.getElementById(id).value = '';
+    sessionStorage.removeItem('ta_' + id);
+  });
+  updateOptionalSummary();
+}
+
+function updateOptionalSummary() {
+  var ids = ['checklistPath', 'contextPath', 'manualTestPath'];
+  var labels = { checklistPath: 'Checklist', contextPath: 'Context', manualTestPath: 'Manual Test' };
+  var set = ids.filter(function(id) {
+    var el = document.getElementById(id);
+    return el && el.value.trim();
+  });
+  var summary = document.getElementById('optionalSummary');
+  if (!summary) return;
+  if (set.length === 0) {
+    summary.textContent = 'Configure (0 files set)';
+  } else {
+    summary.textContent = set.map(function(id) { return labels[id]; }).join(', ') + ' (' + set.length + '/3)';
+  }
 }
 
 async function loadFileDirectory(path) {
@@ -1005,6 +1083,7 @@ async function runAudit() {
   const noTests = document.getElementById('noTests').checked;
   const checklistPath = document.getElementById('checklistPath').value.trim();
   const contextPath = document.getElementById('contextPath').value.trim();
+  const manualTestPath = document.getElementById('manualTestPath').value.trim();
 
   // Validation
   if (!task) { showToast('Task name is required'); return; }
@@ -1033,6 +1112,7 @@ async function runAudit() {
         project_dir: projectDir, include_paths: includePaths, no_tests: noTests,
         checklist_path: checklistPath || null,
         context_path: contextPath || null,
+        manual_test_path: manualTestPath || null,
       }),
     });
 
