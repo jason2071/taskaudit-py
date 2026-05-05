@@ -553,7 +553,7 @@ WEB_HTML = """<!DOCTYPE html>
     <div class="form-group">
       <label>API Key</label>
       <input type="password" id="apiKey" placeholder="sk-... (or leave empty to use env var)" autocomplete="off">
-      <div class="hint">Saved in browser localStorage</div>
+      <div class="hint">Uses .env by default. Override here (cleared on tab close).</div>
     </div>
 
     <div class="form-group">
@@ -715,12 +715,12 @@ async function init() {
 }
 
 function restoreApiKey(provider) {
-  const saved = localStorage.getItem('ta_key_' + provider);
+  const saved = sessionStorage.getItem('ta_key_' + provider);
   document.getElementById('apiKey').value = saved || '';
 }
 
 function saveApiKey(provider, key) {
-  if (key) localStorage.setItem('ta_key_' + provider, key);
+  if (key) sessionStorage.setItem('ta_key_' + provider, key);
 }
 
 // Provider change → restore API key + reset/fetch models
