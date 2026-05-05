@@ -3,8 +3,9 @@
 # ─────────────────────────────────────────────────────────
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
-from ..models import AuditResult, ChecklistItem
+from ..models import AuditResult, ChecklistItem, CoverageReport
 
 
 def export_markdown(
@@ -13,6 +14,8 @@ def export_markdown(
     desc: str,
     result: AuditResult,
     checklist: list[ChecklistItem],
+    coverage: Optional[CoverageReport] = None,
+    coverage_threshold: float = 80.0,
 ) -> None:
     """Generate markdown report — ใช้ list + join เพื่อความเร็ว"""
 
@@ -72,6 +75,30 @@ def export_markdown(
         lines.append(f"- {icon} **{title}**{cat_str}")
         if r.get("evidence"):
             lines.append(f"  - _{r['evidence']}_")
+
+    # Coverage section
+    if coverage is not None:
+        lines += ["", "## 📊 Test Coverage", ""]
+        if not coverage.ran:
+            lines += [f"> ⚠ ไม่สามารถรัน coverage: {coverage.error}", ""]
+        else:
+            passed = coverage.overall_percent >= coverage_threshold
+            mark = "✅" if passed else "❌"
+            lines += [
+                f"**Overall:** {mark} `{coverage.overall_percent:.1f}%` (threshold: `{coverage_threshold:.0f}%`)",
+                "",
+                "| Package | Coverage |",
+                "|---------|----------|",
+            ]
+            for p in coverage.packages:
+                if not p.has_tests:
+                    lines.append(f"| `{p.package}` | _no tests_ |")
+                else:
+                    pmark = "✅" if p.percent >= coverage_threshold else "🟡" if p.percent >= 50 else "🔴"
+                    lines.append(f"| `{p.package}` | {pmark} {p.percent:.1f}% |")
+            for fp in coverage.failed_packages:
+                lines.append(f"| `{fp}` | ❌ FAIL |")
+            lines.append("")
 
     lines += ["", "## ⚠ Missing Items (not in checklist)", ""]
     if not result.missing_items:

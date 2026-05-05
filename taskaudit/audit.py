@@ -2,9 +2,10 @@
 # Core audit function — เรียก AI provider แล้วแปลง response
 # ─────────────────────────────────────────────────────────
 import json
+from typing import Optional
 
 from .config import MAX_TOKENS
-from .models import AuditResult, ChecklistItem, CodeFile
+from .models import AuditResult, ChecklistItem, CodeFile, CoverageReport
 from .prompt import build_prompt
 from .providers import LLMProvider
 
@@ -17,10 +18,12 @@ def audit_code(
     provider: LLMProvider,
     model: str,
     context: str = "",
+    coverage: Optional[CoverageReport] = None,
+    coverage_threshold: float = 80.0,
 ) -> AuditResult:
     """เรียก AI provider เพื่อ audit code"""
 
-    prompt = build_prompt(task, desc, checklist, files, context)
+    prompt = build_prompt(task, desc, checklist, files, context, coverage, coverage_threshold)
 
     text = provider.complete(prompt, model, MAX_TOKENS)
 

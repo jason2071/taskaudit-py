@@ -28,7 +28,7 @@ def scan_files(
         except ValueError:
             continue
 
-        rel_str = str(rel)
+        rel_str = str(rel).replace("\\", "/")  # normalize Windows paths
 
         # Skip ถ้าอยู่ใน skip dirs
         if any(part in SKIP_DIRS for part in rel.parts):

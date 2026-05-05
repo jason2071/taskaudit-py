@@ -33,6 +33,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from .audit import audit_code
 from .checklist import load_checklist
 from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS, DEFAULT_PROVIDER, console
+from .coverage import run_coverage
 from .providers import get_provider
 from .reporters.html import export_html
 from .reporters.markdown import export_markdown
@@ -69,6 +70,9 @@ def main() -> None:
     )
     parser.add_argument("--context", help="Path to context/requirement file (.md/.txt) to include in AI prompt")
     parser.add_argument("--no-tests", action="store_true", help="Exclude _test.go files")
+    parser.add_argument("--coverage", action="store_true", help="Run `go test -cover ./...` และรวมผลใน audit")
+    parser.add_argument("--coverage-threshold", type=float, default=80.0, help="Threshold percent สำหรับ coverage (default: 80)")
+    parser.add_argument("--coverage-timeout", type=int, default=300, help="Timeout วินาทีสำหรับ go test (default: 300)")
     parser.add_argument("--html", help="Export HTML report to path")
     parser.add_argument("--md", help="Export Markdown report to path")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -103,7 +107,24 @@ def main() -> None:
         for f in files:
             console.print(f"  [dim]- {f.path} ({len(f.content)} bytes)[/]")
 
-    # 3. Call API — มี spinner ระหว่างรอ
+    # 3. Run coverage (optional, ก่อน audit)
+    coverage = None
+    if args.coverage:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold cyan]{task.description}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            progress.add_task("Running `go test -cover ./...`...", total=None)
+            coverage = run_coverage(args.dir, timeout=args.coverage_timeout, verbose=args.verbose)
+
+        if not coverage.ran:
+            console.print(f"[yellow]⚠ Coverage skipped: {coverage.error}[/]")
+        elif args.verbose:
+            console.print(f"📊 Coverage: {coverage.overall_percent:.1f}% ({len(coverage.packages)} packages)")
+
+    # 4. Call API — มี spinner ระหว่างรอ
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold cyan]{task.description}"),
@@ -118,19 +139,34 @@ def main() -> None:
                 context_text = cf.read()
 
         try:
-            result = audit_code(args.task, args.desc, checklist, files, provider, model, context_text)
+            result = audit_code(
+                args.task, args.desc, checklist, files, provider, model,
+                context_text, coverage, args.coverage_threshold,
+            )
         except Exception as e:
             console.print(f"[red]❌ Audit failed: {e}[/]")
             sys.exit(1)
 
-    # 4. Output
+    # 5. Output
     if args.json:
-        # ให้ output เป็น JSON ปกติ ไม่ผ่าน rich (กัน rich ใส่สี)
-        print(json.dumps({
+        out = {
             "results": result.results,
             "missingItems": result.missing_items,
             "summary": result.summary,
-        }, ensure_ascii=False, indent=2))
+        }
+        if coverage and coverage.ran:
+            out["coverage"] = {
+                "overallPercent": coverage.overall_percent,
+                "threshold": args.coverage_threshold,
+                "passed": coverage.overall_percent >= args.coverage_threshold,
+                "packages": [
+                    {"package": p.package, "percent": p.percent, "hasTests": p.has_tests}
+                    for p in coverage.packages
+                ],
+                "failedPackages": coverage.failed_packages,
+            }
+        # ให้ output เป็น JSON ปกติ ไม่ผ่าน rich (กัน rich ใส่สี)
+        print(json.dumps(out, ensure_ascii=False, indent=2))
         return
 
     if args.html:
@@ -138,11 +174,11 @@ def main() -> None:
         console.print(f"[green]📄 HTML report saved to {args.html}[/]")
 
     if args.md:
-        export_markdown(args.md, args.task, args.desc, result, checklist)
+        export_markdown(args.md, args.task, args.desc, result, checklist, coverage, args.coverage_threshold)
         console.print(f"[green]📝 Markdown report saved to {args.md}[/]")
 
     # Always print to terminal
-    print_report(result, checklist)
+    print_report(result, checklist, coverage, args.coverage_threshold)
 
 
 def _check_web_mode() -> bool:

@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from .audit import audit_code
 from .checklist import load_checklist
 from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS, LOCAL_PROVIDERS
+from .coverage import run_coverage
 from .providers import get_provider
 from .scanner import scan_files
 
@@ -48,6 +49,9 @@ class AuditRequest(BaseModel):
     checklist_path: str | None = None
     context_path: str | None = None
     manual_test_path: str | None = None
+    coverage: bool = False
+    coverage_threshold: float = 80.0
+    coverage_timeout: int = 300
 
 
 # ─────────────────────────────────────────────────────────
@@ -278,8 +282,20 @@ def run_audit(req: AuditRequest):
                     sep = "\n\n--- Manual Test Results ---\n"
                     context_text = (context_text + sep + mt_text) if context_text else mt_text
 
+            # Run coverage (optional, ก่อน audit)
+            coverage = None
+            if req.coverage:
+                coverage = run_coverage(
+                    str(project_dir),
+                    timeout=req.coverage_timeout,
+                    verbose=False,
+                )
+
             # Run audit
-            result = audit_code(req.task, req.desc, checklist, files, provider, model, context_text)
+            result = audit_code(
+                req.task, req.desc, checklist, files, provider, model,
+                context_text, coverage, req.coverage_threshold,
+            )
 
             # Build response — same structure as HTML reporter
             title_by_id = {item.id: item.title for item in checklist}
@@ -304,6 +320,23 @@ def run_audit(req: AuditRequest):
             total = len(items)
             done_pct = (counts["done"] * 100 // total) if total > 0 else 0
 
+            coverage_resp = None
+            if coverage is not None:
+                if coverage.ran:
+                    coverage_resp = {
+                        "ran": True,
+                        "overall_percent": coverage.overall_percent,
+                        "threshold": req.coverage_threshold,
+                        "passed": coverage.overall_percent >= req.coverage_threshold,
+                        "packages": [
+                            {"package": p.package, "percent": p.percent, "has_tests": p.has_tests}
+                            for p in coverage.packages
+                        ],
+                        "failed_packages": coverage.failed_packages,
+                    }
+                else:
+                    coverage_resp = {"ran": False, "error": coverage.error}
+
             return {
                 "task": req.task,
                 "desc": req.desc,
@@ -316,6 +349,7 @@ def run_audit(req: AuditRequest):
                 "items": items,
                 "missing_items": result.missing_items,
                 "summary": result.summary,
+                "coverage": coverage_resp,
             }
 
         except HTTPException:
@@ -543,6 +577,35 @@ WEB_HTML = """<!DOCTYPE html>
     font-family: 'JetBrains Mono', monospace;
   }
 
+  /* ── Coverage panel ── */
+  .cov-panel {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 16px 18px; margin-bottom: 20px;
+  }
+  .cov-panel.cov-pass { border-left: 3px solid #10b981; }
+  .cov-panel.cov-fail { border-left: 3px solid #ef4444; }
+  .cov-panel.cov-error { border-left: 3px solid #f59e0b; background: #fffbeb; }
+  .cov-header { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 10px; }
+  .cov-overall { font-family: 'JetBrains Mono', monospace; }
+  .cov-pass .cov-overall { color: #059669; }
+  .cov-fail .cov-overall { color: #dc2626; }
+  .cov-th { font-size: 11px; color: #94a3b8; font-weight: 400; }
+  .cov-error-msg { font-size: 13px; color: #b45309; font-family: 'JetBrains Mono', monospace; }
+  .cov-table {
+    width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px;
+  }
+  .cov-table th {
+    text-align: left; padding: 8px 10px; font-size: 10px; letter-spacing: 0.8px;
+    color: #94a3b8; border-bottom: 1px solid #e2e8f0; text-transform: uppercase;
+  }
+  .cov-table th:last-child { text-align: right; }
+  .cov-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+  .cov-table td:last-child { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .cov-good { color: #059669; }
+  .cov-mid { color: #d97706; }
+  .cov-low { color: #dc2626; }
+  .cov-no-tests { color: #94a3b8; font-style: italic; font-weight: 400; }
+
   .missing-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 18px; margin-bottom: 8px; }
   .missing-card.high { border-left: 3px solid #ef4444; background: #fef2f2; }
   .missing-card.medium { border-left: 3px solid #f59e0b; background: #fffbeb; }
@@ -658,6 +721,20 @@ WEB_HTML = """<!DOCTYPE html>
         <input type="checkbox" id="noTests">
         Exclude _test.go files
       </label>
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-wrap">
+        <input type="checkbox" id="coverage" onchange="toggleCoverageOpts()">
+        Run <span class="mono">go test -cover ./...</span>
+      </label>
+      <div class="hint">Includes coverage % per package in audit (slow)</div>
+    </div>
+
+    <div class="form-group" id="coverageOpts" style="display:none;">
+      <label>Coverage Threshold (%)</label>
+      <input type="number" id="coverageThreshold" value="80" min="0" max="100" step="1">
+      <div class="hint">Overall % below this → AI flags test items as partial/missing</div>
     </div>
 
     <button class="btn btn-primary" id="runBtn" onclick="runAudit()">
@@ -800,6 +877,11 @@ async function init() {
   if (lastDir) document.getElementById('projectDir').value = lastDir;
   const lastInclude = localStorage.getItem('ta_include');
   if (lastInclude) document.getElementById('includePaths').value = lastInclude;
+  const lastCoverage = localStorage.getItem('ta_coverage');
+  if (lastCoverage === '1') document.getElementById('coverage').checked = true;
+  const lastCoverageTh = localStorage.getItem('ta_coverageThreshold');
+  if (lastCoverageTh) document.getElementById('coverageThreshold').value = lastCoverageTh;
+  toggleCoverageOpts();
   const lastChecklist = sessionStorage.getItem('ta_checklistPath');
   if (lastChecklist) document.getElementById('checklistPath').value = lastChecklist;
   const lastContext = sessionStorage.getItem('ta_contextPath');
@@ -1129,6 +1211,8 @@ async function runAudit() {
   const projectDir = document.getElementById('projectDir').value.trim();
   const includePaths = document.getElementById('includePaths').value.trim();
   const noTests = document.getElementById('noTests').checked;
+  const coverage = document.getElementById('coverage').checked;
+  const coverageThreshold = parseFloat(document.getElementById('coverageThreshold').value) || 80;
   const checklistPath = document.getElementById('checklistPath').value.trim();
   const contextPath = document.getElementById('contextPath').value.trim();
   const manualTestPath = document.getElementById('manualTestPath').value.trim();
@@ -1143,6 +1227,8 @@ async function runAudit() {
   localStorage.setItem('ta_dir', projectDir);
   localStorage.setItem('ta_provider', provider);
   localStorage.setItem('ta_include', includePaths);
+  localStorage.setItem('ta_coverage', coverage ? '1' : '0');
+  localStorage.setItem('ta_coverageThreshold', String(coverageThreshold));
 
   // UI: show loading
   document.getElementById('welcome').style.display = 'none';
@@ -1161,6 +1247,8 @@ async function runAudit() {
         checklist_path: checklistPath || null,
         context_path: contextPath || null,
         manual_test_path: manualTestPath || null,
+        coverage: coverage,
+        coverage_threshold: coverageThreshold,
       }),
     });
 
@@ -1210,6 +1298,43 @@ function renderResults(data) {
   html += '  <div class="stat partial"><div class="stat-label">PARTIAL</div><div class="stat-value">' + data.counts.partial + '</div></div>';
   html += '  <div class="stat na"><div class="stat-label">N/A</div><div class="stat-value">' + data.counts.not_applicable + '</div></div>';
   html += '</div>';
+
+  // Coverage panel
+  if (data.coverage) {
+    const cov = data.coverage;
+    if (!cov.ran) {
+      html += '<div class="cov-panel cov-error">';
+      html += '  <div class="cov-header">📊 Test Coverage — <span style="color:#b45309">unavailable</span></div>';
+      html += '  <div class="cov-error-msg">' + escapeHtml(cov.error || 'unknown error') + '</div>';
+      html += '</div>';
+    } else {
+      const passed = cov.passed;
+      const cls = passed ? 'cov-pass' : 'cov-fail';
+      const mark = passed ? '✓' : '✗';
+      html += '<div class="cov-panel ' + cls + '">';
+      html += '  <div class="cov-header">📊 Test Coverage — <span class="cov-overall">' + mark + ' ' +
+        cov.overall_percent.toFixed(1) + '%</span> <span class="cov-th">(threshold: ' +
+        cov.threshold.toFixed(0) + '%)</span></div>';
+      if (cov.packages && cov.packages.length > 0) {
+        html += '  <table class="cov-table"><thead><tr><th>Package</th><th>Coverage</th></tr></thead><tbody>';
+        for (const p of cov.packages) {
+          let cell;
+          if (!p.has_tests) {
+            cell = '<span class="cov-no-tests">no tests</span>';
+          } else {
+            const pcls = p.percent >= cov.threshold ? 'cov-good' : (p.percent >= 50 ? 'cov-mid' : 'cov-low');
+            cell = '<span class="' + pcls + '">' + p.percent.toFixed(1) + '%</span>';
+          }
+          html += '<tr><td class="mono">' + escapeHtml(p.package) + '</td><td>' + cell + '</td></tr>';
+        }
+        for (const fp of (cov.failed_packages || [])) {
+          html += '<tr><td class="mono">' + escapeHtml(fp) + '</td><td><span class="cov-low">FAIL</span></td></tr>';
+        }
+        html += '  </tbody></table>';
+      }
+      html += '</div>';
+    }
+  }
 
   // Checklist items
   html += '<div class="section-title">CHECKLIST RESULTS (' + data.items.length + ')</div>';
@@ -1326,6 +1451,11 @@ function exportMd() {
 // ─────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────
+function toggleCoverageOpts() {
+  const on = document.getElementById('coverage').checked;
+  document.getElementById('coverageOpts').style.display = on ? 'block' : 'none';
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
