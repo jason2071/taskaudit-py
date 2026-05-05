@@ -1,0 +1,9 @@
+# format: category: title
+code: สร้าง model compare
+code: สร้าง repository พร้อม transaction handling
+code: สร้าง service compare logic
+code: สร้าง handler + route
+code: เพิ่ม validation tag ที่ DTO
+test: เขียน unit test table-driven สำหรับ compare logic
+test: test edge case effective date
+docs: comment business logic ที่ซับซ้อน

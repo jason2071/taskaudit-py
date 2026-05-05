@@ -574,6 +574,15 @@ WEB_HTML = """<!DOCTYPE html>
     </div>
 
     <div class="form-group">
+      <label>Checklist File</label>
+      <div class="dir-input-wrap">
+        <input type="text" id="checklistPath" placeholder="(optional) path to checklist.txt">
+        <button class="btn-browse" onclick="openFileBrowser()">Browse</button>
+      </div>
+      <div class="hint">Format: "category: title" per line. Leave empty for built-in checklist.</div>
+    </div>
+
+    <div class="form-group">
       <label>Include Paths</label>
       <input type="text" id="includePaths" placeholder="internal/handler,internal/service,...">
       <div class="hint">Comma-separated relative paths</div>
@@ -627,6 +636,21 @@ WEB_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- ── File Browser Modal (for checklist) ── -->
+<div class="modal-overlay" id="fileBrowserModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Select Checklist File</h3>
+      <button class="modal-close" onclick="closeFileBrowser()">&times;</button>
+    </div>
+    <div class="modal-path" id="fileBrowserPath">~</div>
+    <div class="modal-body" id="fileBrowserList"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeFileBrowser()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Error Toast ── -->
 <div class="toast" id="toast">
   <button class="toast-close" onclick="hideToast()">&times;</button>
@@ -665,6 +689,8 @@ async function init() {
   if (lastDir) document.getElementById('projectDir').value = lastDir;
   const lastInclude = localStorage.getItem('ta_include');
   if (lastInclude) document.getElementById('includePaths').value = lastInclude;
+  const lastChecklist = localStorage.getItem('ta_checklist');
+  if (lastChecklist) document.getElementById('checklistPath').value = lastChecklist;
   const lastProvider = localStorage.getItem('ta_provider');
   if (lastProvider) {
     document.getElementById('provider').value = lastProvider;
@@ -838,6 +864,82 @@ async function loadDirectory(path) {
 }
 
 // ─────────────────────────────────────────────────────────
+// File Browser (for checklist)
+// ─────────────────────────────────────────────────────────
+let fileBrowserCurrentPath = '~';
+
+async function openFileBrowser() {
+  const current = document.getElementById('checklistPath').value || document.getElementById('projectDir').value || '~';
+  // If current is a file, browse its parent
+  const startPath = current.includes('.') && !current.endsWith('/') ? current.substring(0, current.lastIndexOf('/')) || '~' : current;
+  fileBrowserCurrentPath = startPath;
+  document.getElementById('fileBrowserModal').classList.add('active');
+  await loadFileDirectory(startPath);
+}
+
+function closeFileBrowser() {
+  document.getElementById('fileBrowserModal').classList.remove('active');
+}
+
+function selectFile(filePath) {
+  document.getElementById('checklistPath').value = filePath;
+  localStorage.setItem('ta_checklist', filePath);
+  closeFileBrowser();
+}
+
+async function loadFileDirectory(path) {
+  const listEl = document.getElementById('fileBrowserList');
+  listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8">Loading...</div>';
+
+  try {
+    const resp = await fetch('/api/browse?path=' + encodeURIComponent(path));
+    if (!resp.ok) {
+      const err = await resp.json();
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#ef4444">' + escapeHtml(err.detail) + '</div>';
+      return;
+    }
+    const data = await resp.json();
+    fileBrowserCurrentPath = data.current;
+    document.getElementById('fileBrowserPath').textContent = data.current;
+
+    listEl.innerHTML = '';
+
+    // Parent directory link
+    if (data.parent) {
+      const div = document.createElement('div');
+      div.className = 'dir-item dir-item-up';
+      div.innerHTML = '<span class="icon">&#8593;</span><span>.. (parent)</span>';
+      div.addEventListener('click', function() { loadFileDirectory(data.parent); });
+      listEl.appendChild(div);
+    }
+
+    // Entries — dirs navigable, files clickable to select
+    for (const entry of data.entries) {
+      const div = document.createElement('div');
+      if (entry.is_dir) {
+        div.className = 'dir-item is-dir';
+        div.innerHTML = '<span class="icon">&#128193;</span><span>' + escapeHtml(entry.name) + '</span>';
+        div.addEventListener('click', (function(p) { return function() { loadFileDirectory(p); }; })(entry.path));
+      } else {
+        div.className = 'dir-item';
+        div.style.cursor = 'pointer';
+        const isText = entry.name.endsWith('.txt') || entry.name.endsWith('.md') || entry.name.endsWith('.checklist');
+        div.innerHTML = '<span class="icon">' + (isText ? '&#128203;' : '&#128196;') + '</span><span>' + escapeHtml(entry.name) + '</span>';
+        if (isText) div.style.color = '#2563eb';
+        div.addEventListener('click', (function(p) { return function() { selectFile(p); }; })(entry.path));
+      }
+      listEl.appendChild(div);
+    }
+
+    if (!data.entries.length && !data.parent) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8">Empty directory</div>';
+    }
+  } catch (e) {
+    listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#ef4444">Failed to browse: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // Run Audit
 // ─────────────────────────────────────────────────────────
 async function runAudit() {
@@ -849,6 +951,7 @@ async function runAudit() {
   const projectDir = document.getElementById('projectDir').value.trim();
   const includePaths = document.getElementById('includePaths').value.trim();
   const noTests = document.getElementById('noTests').checked;
+  const checklistPath = document.getElementById('checklistPath').value.trim();
 
   // Validation
   if (!task) { showToast('Task name is required'); return; }
@@ -875,6 +978,7 @@ async function runAudit() {
       body: JSON.stringify({
         provider, api_key: apiKey, model, task, desc,
         project_dir: projectDir, include_paths: includePaths, no_tests: noTests,
+        checklist_path: checklistPath || null,
       }),
     });
 
