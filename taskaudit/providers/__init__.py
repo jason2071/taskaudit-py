@@ -20,12 +20,14 @@ def get_provider(name: str) -> LLMProvider:
     from .openai import OpenAIProvider
     from .gemini import GeminiProvider
     from .openrouter import OpenRouterProvider
+    from .ollama import OllamaProvider
 
     providers: dict[str, type[LLMProvider]] = {
         "anthropic": AnthropicProvider,
         "openai": OpenAIProvider,
         "gemini": GeminiProvider,
         "openrouter": OpenRouterProvider,
+        "ollama": OllamaProvider,
     }
     if name not in providers:
         raise ValueError(f"Unknown provider: {name}. Choose from: {', '.join(providers)}")

@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from .audit import audit_code
 from .checklist import load_checklist
-from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS
+from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS, LOCAL_PROVIDERS
 from .providers import get_provider
 from .scanner import scan_files
 
@@ -84,6 +84,7 @@ def get_defaults():
         "default_models": DEFAULT_MODELS,
         "default_include_paths": ",".join(DEFAULT_INCLUDE_DIRS),
         "api_key_env": API_KEY_ENV,
+        "local_providers": list(LOCAL_PROVIDERS),
     }
 
 
@@ -150,12 +151,13 @@ class ModelsRequest(BaseModel):
 
 @app.post("/api/models")
 def list_models(req: ModelsRequest):
-    """Fetch available models from provider using API key"""
-    if not req.api_key.strip():
-        raise HTTPException(status_code=400, detail="API key is required")
-
+    """Fetch available models from provider using API key (or host URL for ollama)"""
     provider = req.provider
     api_key = req.api_key.strip()
+
+    # Ollama uses host URL, not API key. Default to localhost if empty.
+    if provider not in LOCAL_PROVIDERS and not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
 
     try:
         if provider == "anthropic":
@@ -197,6 +199,19 @@ def list_models(req: ModelsRequest):
             models = sorted([m["id"] for m in data.get("data", [])])
             return {"models": models}
 
+        elif provider == "ollama":
+            import urllib.request
+            import json as json_mod
+            host = api_key or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            host = host.strip().rstrip("/")
+            if not host.startswith(("http://", "https://")):
+                host = "http://" + host
+            req_http = urllib.request.Request(f"{host}/api/tags")
+            with urllib.request.urlopen(req_http, timeout=10) as resp:
+                data = json_mod.loads(resp.read())
+            models = sorted([m["name"] for m in data.get("models", [])])
+            return {"models": models}
+
         else:
             raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
@@ -221,10 +236,14 @@ def run_audit(req: AuditRequest):
         raise HTTPException(status_code=400, detail=f"Project directory not found: {req.project_dir}")
 
     # ใช้ API key จาก request ถ้ามี ไม่งั้น fallback ไป env var ที่ export ไว้
+    # Ollama: ใช้ host URL แทน api key, default localhost ถ้าไม่ได้ตั้ง
     env_var = API_KEY_ENV[req.provider]
     api_key = req.api_key.strip() or os.environ.get(env_var, "")
     if not api_key:
-        raise HTTPException(status_code=400, detail=f"API key is required — either enter in form or export {env_var}")
+        if req.provider in LOCAL_PROVIDERS:
+            api_key = "http://localhost:11434"
+        else:
+            raise HTTPException(status_code=400, detail=f"API key is required — either enter in form or export {env_var}")
 
     with temp_env(env_var, api_key):
         try:
@@ -270,12 +289,16 @@ def run_audit(req: AuditRequest):
             items = []
             for r in result.results:
                 status = r.get("status", "missing")
+                if status not in counts:
+                    status = "missing"
                 counts[status] = counts.get(status, 0) + 1
+                step_id = r.get("stepId") or r.get("id") or ""
+                title = title_by_id.get(step_id) or r.get("title") or step_id or "(unnamed)"
                 items.append({
-                    "title": title_by_id.get(r["stepId"], r["stepId"]),
+                    "title": title,
                     "status": status,
                     "evidence": r.get("evidence", ""),
-                    "category": cat_by_id.get(r["stepId"], ""),
+                    "category": cat_by_id.get(step_id, r.get("category", "")),
                 })
 
             total = len(items)
@@ -577,13 +600,14 @@ WEB_HTML = """<!DOCTYPE html>
         <option value="openai">OpenAI</option>
         <option value="gemini">Google Gemini</option>
         <option value="openrouter">OpenRouter</option>
+        <option value="ollama">Ollama (local)</option>
       </select>
     </div>
 
     <div class="form-group">
-      <label>API Key</label>
+      <label id="apiKeyLabel">API Key</label>
       <input type="password" id="apiKey" placeholder="sk-... (or leave empty to use env var)" autocomplete="off">
-      <div class="hint">Uses .env by default. Override here (cleared on tab close).</div>
+      <div class="hint" id="apiKeyHint">Uses .env by default. Override here (cleared on tab close).</div>
     </div>
 
     <div class="form-group">
@@ -766,6 +790,7 @@ async function init() {
 
   // Restore API keys from localStorage
   const provider = document.getElementById('provider').value;
+  applyProviderUI(provider);
   restoreApiKey(provider);
 
   // Restore last used values
@@ -785,6 +810,7 @@ async function init() {
   const lastProvider = localStorage.getItem('ta_provider');
   if (lastProvider) {
     document.getElementById('provider').value = lastProvider;
+    applyProviderUI(lastProvider);
     restoreApiKey(lastProvider);
     resetModelSelect();
   }
@@ -802,12 +828,31 @@ function saveApiKey(provider, key) {
   if (key) sessionStorage.setItem('ta_key_' + provider, key);
 }
 
-// Provider change → restore API key + reset/fetch models
+// Provider change → restore API key + reset/fetch models + swap label
 document.getElementById('provider').addEventListener('change', function() {
+  applyProviderUI(this.value);
   restoreApiKey(this.value);
   resetModelSelect();
   autoFetchModels();
 });
+
+function applyProviderUI(provider) {
+  var isLocal = ((defaults.local_providers || []).indexOf(provider) >= 0) || provider === 'ollama';
+  var input = document.getElementById('apiKey');
+  var label = document.getElementById('apiKeyLabel');
+  var hint = document.getElementById('apiKeyHint');
+  if (isLocal) {
+    label.textContent = 'Host URL';
+    input.type = 'text';
+    input.placeholder = 'http://localhost:11434 (or leave empty)';
+    hint.textContent = 'Ollama host URL. Default: http://localhost:11434';
+  } else {
+    label.textContent = 'API Key';
+    input.type = 'password';
+    input.placeholder = 'sk-... (or leave empty to use env var)';
+    hint.textContent = 'Uses .env by default. Override here (cleared on tab close).';
+  }
+}
 
 // API key blur → auto-fetch models
 document.getElementById('apiKey').addEventListener('blur', function() {
@@ -825,8 +870,10 @@ function resetModelSelect() {
 }
 
 function autoFetchModels() {
+  const provider = document.getElementById('provider').value;
   const apiKey = document.getElementById('apiKey').value.trim();
-  if (apiKey) fetchModels();
+  const isLocal = ((defaults.local_providers || []).indexOf(provider) >= 0) || provider === 'ollama';
+  if (apiKey || isLocal) fetchModels();
 }
 
 async function fetchModels() {
@@ -834,8 +881,9 @@ async function fetchModels() {
   const apiKey = document.getElementById('apiKey').value.trim();
   const hint = document.getElementById('modelHint');
   const btn = document.getElementById('fetchModelsBtn');
+  const isLocal = ((defaults.local_providers || []).indexOf(provider) >= 0) || provider === 'ollama';
 
-  if (!apiKey) {
+  if (!apiKey && !isLocal) {
     hint.textContent = 'API key required to fetch models';
     showToast('Enter API key first to fetch models');
     return;

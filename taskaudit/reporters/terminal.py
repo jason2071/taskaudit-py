@@ -58,8 +58,10 @@ def print_report(result: AuditResult, checklist: list[ChecklistItem]) -> None:
     }
 
     for r in result.results:
-        icon, color = icons.get(r["status"], ("?", "dim"))
-        title = title_by_id.get(r["stepId"], r["stepId"])
+        status = r.get("status", "missing")
+        icon, color = icons.get(status, ("?", "dim"))
+        step_id = r.get("stepId") or r.get("id") or ""
+        title = title_by_id.get(step_id) or r.get("title") or step_id or "(unnamed)"
         console.print(f"  [{color}]{icon}[/] {title}")
         if r.get("evidence"):
             console.print(f"    [dim]{r['evidence']}[/]")

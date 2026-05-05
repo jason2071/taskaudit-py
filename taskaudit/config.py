@@ -32,18 +32,23 @@ DEFAULT_MODELS = {
     "openai": os.getenv("OPENAI_MODEL", "gpt-4o"),
     "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
     "openrouter": os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4"),
+    "ollama": os.getenv("OLLAMA_MODEL", "llama3.2"),
 }
 
 # Default provider (override ผ่าน .env)
-_VALID_PROVIDERS = ("anthropic", "openai", "gemini", "openrouter")
+_VALID_PROVIDERS = ("anthropic", "openai", "gemini", "openrouter", "ollama")
 DEFAULT_PROVIDER = os.getenv("TASKAUDIT_PROVIDER", "anthropic")
 if DEFAULT_PROVIDER not in _VALID_PROVIDERS:
     DEFAULT_PROVIDER = "anthropic"
 
-# Env var name per provider
+# Env var name per provider — Ollama uses host URL not API key
 API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "ollama": "OLLAMA_HOST",
 }
+
+# Providers that don't need API key (use local host instead)
+LOCAL_PROVIDERS = {"ollama"}

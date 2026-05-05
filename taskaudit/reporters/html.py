@@ -167,12 +167,17 @@ def export_html(
     counts: dict[str, int] = {"done": 0, "missing": 0, "partial": 0, "not_applicable": 0}
     items = []
     for r in result.results:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
+        status = r.get("status", "missing")
+        if status not in counts:
+            status = "missing"
+        counts[status] = counts.get(status, 0) + 1
+        step_id = r.get("stepId") or r.get("id") or ""
+        title = title_by_id.get(step_id) or r.get("title") or step_id or "(unnamed)"
         items.append({
-            "title": title_by_id.get(r["stepId"], r["stepId"]),
-            "status": r["status"],
+            "title": title,
+            "status": status,
             "evidence": r.get("evidence", ""),
-            "category": cat_by_id.get(r["stepId"], ""),
+            "category": cat_by_id.get(step_id, r.get("category", "")),
         })
 
     total = len(items)

@@ -21,7 +21,10 @@ def export_markdown(
 
     counts: dict[str, int] = {"done": 0, "missing": 0, "partial": 0, "not_applicable": 0}
     for r in result.results:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
+        status = r.get("status", "missing")
+        if status not in counts:
+            status = "missing"
+        counts[status] += 1
 
     total = len(result.results)
     done_pct = (counts["done"] * 100 // total) if total > 0 else 0
@@ -60,9 +63,11 @@ def export_markdown(
     ]
 
     for r in result.results:
-        icon = icons.get(r["status"], "⚪")
-        title = title_by_id.get(r["stepId"], r["stepId"])
-        cat = cat_by_id.get(r["stepId"], "")
+        status = r.get("status", "missing")
+        icon = icons.get(status, "⚪")
+        step_id = r.get("stepId") or r.get("id") or ""
+        title = title_by_id.get(step_id) or r.get("title") or step_id or "(unnamed)"
+        cat = cat_by_id.get(step_id, r.get("category", ""))
         cat_str = f" `{cat.upper()}`" if cat else ""
         lines.append(f"- {icon} **{title}**{cat_str}")
         if r.get("evidence"):
