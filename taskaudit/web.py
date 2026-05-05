@@ -550,8 +550,20 @@ WEB_HTML = """<!DOCTYPE html>
       </select>
     </div>
 
-    <input type="hidden" id="apiKey" value="">
-    <input type="hidden" id="model" value="">
+    <div class="form-group">
+      <label>API Key</label>
+      <input type="password" id="apiKey" placeholder="sk-... (or leave empty to use env var)" autocomplete="off">
+      <div class="hint">Saved in browser localStorage</div>
+    </div>
+
+    <div class="form-group">
+      <label>Model</label>
+      <div class="dir-input-wrap">
+        <select id="model" style="flex:1"></select>
+        <button class="btn-browse" id="fetchModelsBtn" onclick="fetchModels()">Fetch</button>
+      </div>
+      <div class="hint" id="modelHint">Enter API key then click Fetch to load models</div>
+    </div>
 
     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
 
@@ -598,6 +610,9 @@ WEB_HTML = """<!DOCTYPE html>
     <button class="btn btn-primary" id="runBtn" onclick="runAudit()">
       Run Audit
     </button>
+    <button class="btn btn-secondary" id="exportBtn" onclick="exportMd()" style="display:none; width:100%; margin-top:8px;">
+      Export Markdown
+    </button>
   </div>
 
   <!-- ── Main: Results ── -->
@@ -614,9 +629,6 @@ WEB_HTML = """<!DOCTYPE html>
     </div>
 
     <div class="results" id="results"></div>
-    <div id="exportWrap" style="display:none; margin-top:20px; text-align:right;">
-      <button class="btn btn-secondary" onclick="exportMd()">Export Markdown</button>
-    </div>
   </div>
 </div>
 
@@ -1066,7 +1078,7 @@ function renderResults(data) {
   resultsEl.scrollTop = 0;
 
   lastAuditData = data;
-  document.getElementById('exportWrap').style.display = 'block';
+  document.getElementById('exportBtn').style.display = 'block';
 }
 
 // ─────────────────────────────────────────────────────────

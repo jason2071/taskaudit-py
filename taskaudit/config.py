@@ -35,7 +35,10 @@ DEFAULT_MODELS = {
 }
 
 # Default provider (override ผ่าน .env)
+_VALID_PROVIDERS = ("anthropic", "openai", "gemini", "openrouter")
 DEFAULT_PROVIDER = os.getenv("TASKAUDIT_PROVIDER", "anthropic")
+if DEFAULT_PROVIDER not in _VALID_PROVIDERS:
+    DEFAULT_PROVIDER = "anthropic"
 
 # Env var name per provider
 API_KEY_ENV = {
