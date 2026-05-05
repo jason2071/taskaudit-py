@@ -29,6 +29,12 @@ _BASE_ANALYSIS = [
     ("analysis", "identify edge cases และ error scenarios"),
 ]
 
+_DESIGN = [
+    ("design", "ห้ามมี junction table (many-to-many) - ทุก relationship ต้องเป็น 1:1 หรือ 1:N"),
+    ("design", "ห้ามเก็บ multi-value ใน column เดียว (array, JSON ของ ID, comma-separated string)"),
+    ("design", "junction table ต้องมี composite PK + FK ทั้ง 2 ฝั่ง"),
+]
+
 _ENT_DB = [
     ("code", "ent schema (ent/schema/*.go) — fields + edges + indexes ครบ"),
     ("code", "รัน `go generate ./ent` หลังแก้ schema (ent generated code อัปเดต)"),
@@ -81,5 +87,5 @@ _COMMON_TAIL = [
 def stack_items(stack: Stack) -> list[tuple[str, str]]:
     """รวม items ตาม stack"""
     if stack == "ent":
-        return _BASE_ANALYSIS + _ENT_DB + _COMMON_CODE + _ENT_TEST + _COMMON_TAIL
-    return _BASE_ANALYSIS + _PLAIN_DB + _COMMON_CODE + _PLAIN_TEST + _COMMON_TAIL
+        return _BASE_ANALYSIS + _DESIGN + _ENT_DB + _COMMON_CODE + _ENT_TEST + _COMMON_TAIL
+    return _BASE_ANALYSIS + _DESIGN + _PLAIN_DB + _COMMON_CODE + _PLAIN_TEST + _COMMON_TAIL

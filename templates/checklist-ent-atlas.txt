@@ -1,10 +1,15 @@
 # Checklist สำหรับ Go + ent + atlas
 # Format: category: title (one per line)
-# Categories: analysis, code, test, docs, review
+# Categories: analysis, design, code, test, docs, review
 
 # === ANALYSIS ===
 analysis: เข้าใจ requirement + ระบุ scope ที่กระทบ
 analysis: identify edge cases และ error scenarios
+
+# === DESIGN ===
+design: ห้ามมี junction table (many-to-many) - ทุก relationship ต้องเป็น 1:1 หรือ 1:N
+design: ห้ามเก็บ multi-value ใน column เดียว (array, JSON ของ ID, comma-separated string)
+design: junction table ต้องมี composite PK + FK ทั้ง 2 ฝั่ง
 
 # === DATABASE (ent + atlas) ===
 code: ent schema (ent/schema/*.go) — fields + edges + indexes ครบ
