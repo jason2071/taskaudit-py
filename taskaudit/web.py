@@ -46,6 +46,7 @@ class AuditRequest(BaseModel):
     include_paths: str = ",".join(DEFAULT_INCLUDE_DIRS)
     no_tests: bool = False
     checklist_path: str | None = None
+    context_path: str | None = None
 
 
 # ─────────────────────────────────────────────────────────
@@ -83,6 +84,19 @@ def get_defaults():
         "default_include_paths": ",".join(DEFAULT_INCLUDE_DIRS),
         "api_key_env": API_KEY_ENV,
     }
+
+
+@app.get("/api/template/{name}")
+def get_template(name: str):
+    """Download template file"""
+    templates_dir = Path(__file__).resolve().parent.parent / "templates"
+    allowed = {"checklist.txt", "requirement.md"}
+    if name not in allowed:
+        raise HTTPException(status_code=404, detail=f"Template not found: {name}")
+    filepath = templates_dir / name
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail=f"Template file missing: {name}")
+    return {"filename": name, "content": filepath.read_text(encoding="utf-8")}
 
 
 @app.get("/api/browse")
@@ -229,8 +243,15 @@ def run_audit(req: AuditRequest):
                     detail=f"No .go files found in {project_dir} with include paths: {include_paths}",
                 )
 
+            # Load context file ถ้ามี
+            context_text = ""
+            if req.context_path:
+                ctx_file = Path(req.context_path).expanduser().resolve()
+                if ctx_file.exists() and ctx_file.is_file():
+                    context_text = ctx_file.read_text(encoding="utf-8")
+
             # Run audit
-            result = audit_code(req.task, req.desc, checklist, files, provider, model)
+            result = audit_code(req.task, req.desc, checklist, files, provider, model, context_text)
 
             # Build response — same structure as HTML reporter
             title_by_id = {item.id: item.title for item in checklist}
@@ -589,9 +610,18 @@ WEB_HTML = """<!DOCTYPE html>
       <label>Checklist File</label>
       <div class="dir-input-wrap">
         <input type="text" id="checklistPath" placeholder="(optional) path to checklist.txt">
-        <button class="btn-browse" onclick="openFileBrowser()">Browse</button>
+        <button class="btn-browse" onclick="openFileBrowser('checklistPath')">Browse</button>
       </div>
       <div class="hint">Format: "category: title" per line. Leave empty for built-in checklist.</div>
+    </div>
+
+    <div class="form-group">
+      <label>Context / Requirement File</label>
+      <div class="dir-input-wrap">
+        <input type="text" id="contextPath" placeholder="(optional) path to requirement.md">
+        <button class="btn-browse" onclick="openFileBrowser('contextPath')">Browse</button>
+      </div>
+      <div class="hint">Requirement/spec doc ที่ AI จะใช้ประเมิน scope</div>
     </div>
 
     <div class="form-group">
@@ -613,6 +643,12 @@ WEB_HTML = """<!DOCTYPE html>
     <button class="btn btn-secondary" id="exportBtn" onclick="exportMd()" style="display:none; width:100%; margin-top:8px;">
       Export Markdown
     </button>
+
+    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+    <div style="display:flex; gap:6px;">
+      <button class="btn btn-secondary" style="flex:1; font-size:11px; padding:7px 10px;" onclick="downloadTemplate('checklist.txt')">Template: Checklist</button>
+      <button class="btn btn-secondary" style="flex:1; font-size:11px; padding:7px 10px;" onclick="downloadTemplate('requirement.md')">Template: Requirement</button>
+    </div>
   </div>
 
   <!-- ── Main: Results ── -->
@@ -701,8 +737,10 @@ async function init() {
   if (lastDir) document.getElementById('projectDir').value = lastDir;
   const lastInclude = localStorage.getItem('ta_include');
   if (lastInclude) document.getElementById('includePaths').value = lastInclude;
-  const lastChecklist = localStorage.getItem('ta_checklist');
+  const lastChecklist = sessionStorage.getItem('ta_checklistPath');
   if (lastChecklist) document.getElementById('checklistPath').value = lastChecklist;
+  const lastContext = sessionStorage.getItem('ta_contextPath');
+  if (lastContext) document.getElementById('contextPath').value = lastContext;
   const lastProvider = localStorage.getItem('ta_provider');
   if (lastProvider) {
     document.getElementById('provider').value = lastProvider;
@@ -879,9 +917,11 @@ async function loadDirectory(path) {
 // File Browser (for checklist)
 // ─────────────────────────────────────────────────────────
 let fileBrowserCurrentPath = '~';
+let fileBrowserTargetId = 'checklistPath';
 
-async function openFileBrowser() {
-  const current = document.getElementById('checklistPath').value || document.getElementById('projectDir').value || '~';
+async function openFileBrowser(targetId) {
+  fileBrowserTargetId = targetId || 'checklistPath';
+  const current = document.getElementById(fileBrowserTargetId).value || document.getElementById('projectDir').value || '~';
   // If current is a file, browse its parent
   const startPath = current.includes('.') && !current.endsWith('/') ? current.substring(0, current.lastIndexOf('/')) || '~' : current;
   fileBrowserCurrentPath = startPath;
@@ -894,8 +934,8 @@ function closeFileBrowser() {
 }
 
 function selectFile(filePath) {
-  document.getElementById('checklistPath').value = filePath;
-  localStorage.setItem('ta_checklist', filePath);
+  document.getElementById(fileBrowserTargetId).value = filePath;
+  sessionStorage.setItem('ta_' + fileBrowserTargetId, filePath);
   closeFileBrowser();
 }
 
@@ -964,6 +1004,7 @@ async function runAudit() {
   const includePaths = document.getElementById('includePaths').value.trim();
   const noTests = document.getElementById('noTests').checked;
   const checklistPath = document.getElementById('checklistPath').value.trim();
+  const contextPath = document.getElementById('contextPath').value.trim();
 
   // Validation
   if (!task) { showToast('Task name is required'); return; }
@@ -991,6 +1032,7 @@ async function runAudit() {
         provider, api_key: apiKey, model, task, desc,
         project_dir: projectDir, include_paths: includePaths, no_tests: noTests,
         checklist_path: checklistPath || null,
+        context_path: contextPath || null,
       }),
     });
 
@@ -1079,6 +1121,26 @@ function renderResults(data) {
 
   lastAuditData = data;
   document.getElementById('exportBtn').style.display = 'block';
+}
+
+// ─────────────────────────────────────────────────────────
+// Download Template
+// ─────────────────────────────────────────────────────────
+async function downloadTemplate(name) {
+  try {
+    const resp = await fetch('/api/template/' + encodeURIComponent(name));
+    if (!resp.ok) { showToast('Failed to fetch template'); return; }
+    const data = await resp.json();
+    const blob = new Blob([data.content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = data.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showToast('Download failed: ' + e.message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────

@@ -16,10 +16,11 @@ def audit_code(
     files: list[CodeFile],
     provider: LLMProvider,
     model: str,
+    context: str = "",
 ) -> AuditResult:
     """เรียก AI provider เพื่อ audit code"""
 
-    prompt = build_prompt(task, desc, checklist, files)
+    prompt = build_prompt(task, desc, checklist, files, context)
 
     text = provider.complete(prompt, model, MAX_TOKENS)
 

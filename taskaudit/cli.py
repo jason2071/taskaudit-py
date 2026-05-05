@@ -67,6 +67,7 @@ def main() -> None:
         default=",".join(DEFAULT_INCLUDE_DIRS),
         help=f"Comma-separated paths (default: {','.join(DEFAULT_INCLUDE_DIRS)})",
     )
+    parser.add_argument("--context", help="Path to context/requirement file (.md/.txt) to include in AI prompt")
     parser.add_argument("--no-tests", action="store_true", help="Exclude _test.go files")
     parser.add_argument("--html", help="Export HTML report to path")
     parser.add_argument("--md", help="Export Markdown report to path")
@@ -110,8 +111,14 @@ def main() -> None:
         transient=True,  # spinner จะหายไปเมื่อเสร็จ
     ) as progress:
         progress.add_task(f"Auditing code with {args.provider}/{model}...", total=None)
+        # Load context file ถ้ามี
+        context_text = ""
+        if args.context:
+            with open(args.context, encoding="utf-8") as cf:
+                context_text = cf.read()
+
         try:
-            result = audit_code(args.task, args.desc, checklist, files, provider, model)
+            result = audit_code(args.task, args.desc, checklist, files, provider, model, context_text)
         except Exception as e:
             console.print(f"[red]❌ Audit failed: {e}[/]")
             sys.exit(1)

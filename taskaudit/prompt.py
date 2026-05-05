@@ -9,6 +9,7 @@ def build_prompt(
     desc: str,
     checklist: list[ChecklistItem],
     files: list[CodeFile],
+    context: str = "",
 ) -> str:
     """สร้าง prompt — ใช้ f-string ของ Python ทำให้อ่านง่าย"""
 
@@ -25,11 +26,20 @@ def build_prompt(
         for f in files
     )
 
+    # Context section (requirement/spec document)
+    context_section = ""
+    if context:
+        context_section = f"""
+Requirement/Context document:
+{context}
+"""
+
     # f-string + triple quote = multi-line string ที่แทรก variable ได้
     return f"""คุณเป็น senior Go/Fiber code reviewer ตรวจ code ของ developer คนนี้แล้วเทียบกับ checklist ของงาน
 
 งาน: {task}
 รายละเอียด: {desc or '(ไม่ระบุ)'}
+{context_section}
 
 Checklist ทั้งหมด:
 {checklist_text}

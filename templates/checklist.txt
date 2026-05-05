@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────
+# taskaudit Checklist Template
+# Format: category: title
+# Categories: analysis, code, test, docs, infra, security
+# ─────────────────────────────────────────────────────────
+
+# === ANALYSIS ===
+analysis: เข้าใจ requirement + ระบุ scope ที่กระทบ
+analysis: identify edge cases และ error scenarios
+
+# === DATABASE ===
+code: migration up + down (rollback ได้จริง)
+code: constraints + index ตามที่ query ใช้
+
+# === CODE ===
+code: model + DTO แยกจากกัน, tags ครบ
+code: repository ใช้ context.Context + prepared statement
+code: transaction handling สำหรับ multi-statement
+code: business logic อยู่ที่ service ไม่รั่วไป handler/repo
+code: validation (validator tags + custom rules)
+code: error wrapping + map เป็น HTTP status ที่ถูก
+code: register route ใน main.go
+
+# === TEST ===
+test: unit test table-driven สำหรับ service layer
+test: test error cases + edge cases
+test: integration test (ถ้า critical path)
+
+# === DOCS ===
+docs: comment business logic ที่ซับซ้อน
+docs: API doc / Swagger annotation
+
+# === SECURITY ===
+security: input sanitization
+security: authorization check ก่อน data access
+
+# === INFRA ===
+# infra: Dockerfile updated (ถ้ามี dependency ใหม่)
+# infra: ENV config ครบ
