@@ -38,6 +38,15 @@ pip install -r requirements.txt
 
 ### 3. Set API key (เลือกตาม provider ที่ใช้)
 
+**วิธีที่ 1: ใช้ `.env` file (แนะนำ)**
+
+```bash
+cp .env.example .env
+# แก้ .env ใส่ API key + เลือก provider/model
+```
+
+**วิธีที่ 2: export ตรง**
+
 ```bash
 # Anthropic (default)
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -52,12 +61,17 @@ export GEMINI_API_KEY="AI..."
 export OPENROUTER_API_KEY="sk-or-..."
 ```
 
+> `.env` จะถูกโหลดก่อน — ถ้า export env var ไว้ด้วยจะ override ค่าใน `.env`
+
 ### 4. ทดสอบ
 
 ```bash
 python3 taskaudit.py --help
 # หรือ
 python3 -m taskaudit --help
+
+# เปิด Web UI
+python3 taskaudit.py web
 ```
 
 ## Usage
@@ -88,6 +102,27 @@ python3 taskaudit.py \
   --md ./audit.md \
   -v
 ```
+
+## Web UI
+
+มี Web UI ใช้ผ่าน browser ได้เลย — ไม่ต้องจำ CLI flags
+
+```bash
+# Start Web UI (default port 8080)
+python3 taskaudit.py web
+
+# Custom port
+python3 taskaudit.py web --port 3000
+
+# หรือรันตรงจาก module
+python3 -m taskaudit.web --port 8080
+```
+
+เปิด browser ไปที่ `http://localhost:8080` — มี features:
+- เลือก provider + model ผ่าน UI
+- Browse project directory
+- ดู audit results แบบ interactive
+- Export Markdown report
 
 ## CLI Options
 
@@ -122,6 +157,7 @@ taskaudit-py/
 │   ├── scanner.py            # scan .go files
 │   ├── prompt.py             # build AI prompt
 │   ├── audit.py              # audit_code()
+│   ├── web.py                # FastAPI Web UI (embedded SPA)
 │   ├── providers/
 │   │   ├── __init__.py       # LLMProvider ABC + factory
 │   │   ├── anthropic.py

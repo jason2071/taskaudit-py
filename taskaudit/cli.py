@@ -32,7 +32,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .audit import audit_code
 from .checklist import load_checklist
-from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS, console
+from .config import API_KEY_ENV, DEFAULT_INCLUDE_DIRS, DEFAULT_MODELS, DEFAULT_PROVIDER, console
 from .providers import get_provider
 from .reporters.html import export_html
 from .reporters.markdown import export_markdown
@@ -57,9 +57,9 @@ def main() -> None:
     parser.add_argument("--checklist", help="Path to checklist file")
     parser.add_argument(
         "--provider",
-        default="anthropic",
+        default=DEFAULT_PROVIDER,
         choices=["anthropic", "openai", "gemini", "openrouter"],
-        help="AI provider (default: anthropic)",
+        help=f"AI provider (default: {DEFAULT_PROVIDER})",
     )
     parser.add_argument("--model", default=None, help="Model name (default: per provider)")
     parser.add_argument(

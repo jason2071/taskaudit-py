@@ -1,7 +1,15 @@
 # ─────────────────────────────────────────────────────────
 # Constants และ shared console instance
 # ─────────────────────────────────────────────────────────
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from rich.console import Console
+
+# Load .env file — ค้นหาจาก cwd ขึ้นไป หรือจาก project root
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv()  # fallback: cwd/.env
 
 # global console instance — ใช้ร่วมกันทุก module
 console = Console()
@@ -18,13 +26,16 @@ DEFAULT_INCLUDE_DIRS = [
 
 SKIP_DIRS = {"vendor", "node_modules", ".git", "tmp", "dist", "build"}
 
-# Default model per provider
+# Default model per provider (สามารถ override ผ่าน .env ได้)
 DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-20250514",
-    "openai": "gpt-4o",
-    "gemini": "gemini-2.5-flash",
-    "openrouter": "anthropic/claude-sonnet-4",
+    "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+    "openai": os.getenv("OPENAI_MODEL", "gpt-4o"),
+    "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+    "openrouter": os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4"),
 }
+
+# Default provider (override ผ่าน .env)
+DEFAULT_PROVIDER = os.getenv("TASKAUDIT_PROVIDER", "anthropic")
 
 # Env var name per provider
 API_KEY_ENV = {
