@@ -5,11 +5,13 @@ taskaudit - CLI tool to audit Go code against a checklist using AI.
 Supported providers: anthropic (default), openai, gemini, openrouter
 
 Usage:
-    taskaudit --task "Planogram compare API" --include handler,service,repository
+    taskaudit --task "Audit API" --include handler,service,repository
     taskaudit --task "..." --provider openai --model gpt-4o
     taskaudit --task "..." --provider gemini --model gemini-2.5-flash
     taskaudit --task "..." --provider openrouter --model anthropic/claude-sonnet-4
     taskaudit --task "..." --html ./audit.html --md ./audit.md
+    taskaudit web                        # start Web UI on port 8080
+    taskaudit web --port 3000            # custom port
 
 Required env per provider:
     anthropic   → ANTHROPIC_API_KEY
@@ -39,6 +41,11 @@ from .scanner import scan_files
 
 
 def main() -> None:
+    # เช็คก่อนว่าเป็น web subcommand หรือ --web flag หรือเปล่า
+    # ทำก่อน argparse เพราะ --task เป็น required ใน CLI mode
+    if _check_web_mode():
+        return
+
     # argparse = standard library สำหรับ parse command-line args
     parser = argparse.ArgumentParser(
         description="Audit Go code against a checklist using AI (supports: anthropic, openai, gemini, openrouter)",
@@ -129,3 +136,33 @@ def main() -> None:
 
     # Always print to terminal
     print_report(result, checklist)
+
+
+def _check_web_mode() -> bool:
+    """เช็คว่า user ต้องการเปิด web mode หรือเปล่า
+    รองรับทั้ง `taskaudit web` และ `taskaudit --web`
+    Return True ถ้าเข้า web mode (แล้ว start server)
+    """
+    args = sys.argv[1:]
+
+    # `taskaudit web` หรือ `taskaudit web --port 3000`
+    if args and args[0] == "web":
+        port = 8080
+        for i, arg in enumerate(args):
+            if arg == "--port" and i + 1 < len(args):
+                port = int(args[i + 1])
+        from .web import start_server
+        start_server(port)
+        return True
+
+    # `taskaudit --web` หรือ `taskaudit --web --port 3000`
+    if "--web" in args:
+        port = 8080
+        for i, arg in enumerate(args):
+            if arg == "--port" and i + 1 < len(args):
+                port = int(args[i + 1])
+        from .web import start_server
+        start_server(port)
+        return True
+
+    return False

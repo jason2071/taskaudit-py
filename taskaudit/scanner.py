@@ -34,9 +34,8 @@ def scan_files(
         if any(part in SKIP_DIRS for part in rel.parts):
             continue
 
-        # Skip ถ้าไม่ตรงกับ include path
-        # any() = True ถ้ามีอย่างน้อย 1 อันที่ match
-        if not any(rel_str.startswith(p) for p in include_paths):
+        # Skip ถ้าไม่ตรงกับ include path (ถ้า include_paths ว่าง = scan ทั้งหมด)
+        if include_paths and not any(rel_str.startswith(p) for p in include_paths):
             continue
 
         # Skip test files ถ้าไม่ต้องการ

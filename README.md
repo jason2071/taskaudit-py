@@ -64,24 +64,24 @@ python3 -m taskaudit --help
 
 ```bash
 # Anthropic (default)
-python3 taskaudit.py --task "Planogram compare API" \
+python3 taskaudit.py --task "Audit API" \
   --include "handler,service,repository,model,utils"
 
 # OpenAI
-python3 taskaudit.py --task "Planogram compare API" \
+python3 taskaudit.py --task "Audit API" \
   --provider openai --model gpt-4o
 
 # Gemini
-python3 taskaudit.py --task "Planogram compare API" \
+python3 taskaudit.py --task "Audit API" \
   --provider gemini
 
 # OpenRouter (เข้าถึง model ต่างๆ ผ่าน endpoint เดียว)
-python3 taskaudit.py --task "Planogram compare API" \
+python3 taskaudit.py --task "Audit API" \
   --provider openrouter --model anthropic/claude-sonnet-4
 
 # พร้อม HTML + Markdown report
 python3 taskaudit.py \
-  --task "Planogram compare API" \
+  --task "Audit API" \
   --provider openai \
   --include "handler,service,repository,model,utils" \
   --html ./audit.html \
